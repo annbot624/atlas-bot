@@ -1,5 +1,7 @@
 import asyncio
 import datetime
+import http.server
+import threading
 import requests
 from playwright.async_api import async_playwright
 
@@ -14,6 +16,16 @@ TRACKED_TRIPS = [
     {"from": "Вильнюс", "to": "Минск", "time": "15:10"},
 ]
 
+# Мини-веб-сервер для обмана Render
+def run_dummy_server():
+    class DummyHandler(http.server.SimpleHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"Bot is running!")
+    server = http.server.HTTPServer(('0.0.0.0', 10000), DummyHandler)
+    server.serve_forever()
+
 def send_telegram(message):
     url = f"https://telegram.org{TELEGRAM_TOKEN}/sendMessage"
     try:
@@ -23,7 +35,6 @@ def send_telegram(message):
 
 async def check_atlas_with_browser():
     print(f"[{datetime.datetime.now()}] Открываю виртуальный браузер...")
-    
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(
@@ -55,13 +66,10 @@ async def check_atlas_with_browser():
                             send_telegram(f"🚨 МЕСТ НЕТ!\n🚌 {trip['from']} -> {trip['to']}\n⏰ Время: {trip['time']}\nℹ️ Ваджен Трэвел")
                         else:
                             print(f"✅ Рейс {trip['from']}-{trip['to']} в {trip['time']}: места еще есть.")
-                
                 if not trip_found:
-                    send_telegram(f"❌ Рейс {trip['from']}-{trip['to']} в {trip['time']} отсутствует на экране (мест нет)!")
-                    
+                    send_telegram(f"❌ Рейс {trip['from']}-{trip['to']} в {trip['time']} отсутствует на экране!")
             except Exception as e:
                 print(f"Ошибка при загрузке страницы: {e}")
-                
         await browser.close()
 
 async def main():
@@ -71,12 +79,12 @@ async def main():
     while True:
         now = datetime.datetime.now() + datetime.timedelta(hours=3)
         current_time = now.strftime("%H:%M")
-        
         if current_time == "10:00" or current_time == "15:00":
             await check_atlas_with_browser()
             await asyncio.sleep(65)
-            
         await asyncio.sleep(10)
 
 if name == "main":
+    # Запускаем мини-сайт в отдельном потоке
+    threading.Thread(target=run_dummy_server, daemon=True).start()
     asyncio.run(main())
